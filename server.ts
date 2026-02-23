@@ -9,7 +9,9 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("biryani.db");
+const isVercel = process.env.VERCEL === "1";
+const dbPath = isVercel ? path.join("/tmp", "biryani.db") : "biryani.db";
+const db = new Database(dbPath);
 
 // Initialize Database
 db.exec(`
@@ -112,7 +114,7 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-  app.route("/api/mosques")
+  app.route(["/api/mosques", "/api/mosques/"])
     .get((req, res) => {
       console.log('GET /api/mosques');
       try {
@@ -153,7 +155,7 @@ async function startServer() {
       }
     });
 
-  app.delete("/api/mosques/:id", (req, res) => {
+  app.delete(["/api/mosques/:id", "/api/mosques/:id/"], (req, res) => {
     console.log('DELETE /api/mosques/:id', req.params.id);
     const { id } = req.params;
     const { code } = req.body;
@@ -171,7 +173,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/reports", (req, res) => {
+  app.post(["/api/reports", "/api/reports/"], (req, res) => {
     console.log('POST /api/reports', req.body);
     const { mosque_id, food_type } = req.body;
     try {
@@ -185,7 +187,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/vote", (req, res) => {
+  app.post(["/api/vote", "/api/vote/"], (req, res) => {
     console.log('POST /api/vote', req.body);
     const { report_id, type } = req.body; // type: 'like' or 'dislike'
     try {
@@ -227,9 +229,14 @@ async function startServer() {
   });
 
   const PORT = 3000;
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== "production" || !isVercel) {
+    httpServer.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+
+  return app;
 }
 
-startServer();
+const appPromise = startServer();
+export default appPromise;
