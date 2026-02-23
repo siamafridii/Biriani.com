@@ -109,42 +109,40 @@ function PendingMarker({ position, onConfirm, onCancel }: { position: { lat: num
 
 function MapEvents({ onLongPress }: { onLongPress: (latlng: L.LatLng) => void }) {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const startPosRef = useRef<L.Point | null>(null);
 
-  const handleStart = (latlng: L.LatLng, containerPoint: L.Point) => {
-    startPosRef.current = containerPoint;
-    timerRef.current = setTimeout(() => {
-      onLongPress(latlng);
-      timerRef.current = null;
-    }, 1000); // 1 second long press
-  };
-
-  const handleEnd = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  const handleMove = (containerPoint: L.Point) => {
-    if (timerRef.current && startPosRef.current) {
-      const dist = startPosRef.current.distanceTo(containerPoint);
-      if (dist > 10) {
+  useMapEvents({
+    mousedown: (e) => {
+      // Desktop hold (left click only)
+      if ((e as any).originalEvent?.button === 0) {
+        timerRef.current = setTimeout(() => {
+          onLongPress(e.latlng);
+          timerRef.current = null;
+        }, 1000);
+      }
+    },
+    mouseup: () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    },
+    mousemove: (e) => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    },
+    contextmenu: (e) => {
+      // Mobile long-press and desktop right-click
+      onLongPress(e.latlng);
+    },
+    dragstart: () => {
+      if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
     }
-  };
-
-  useMapEvents({
-    mousedown: (e) => handleStart(e.latlng, e.containerPoint),
-    mouseup: handleEnd,
-    mousemove: (e) => handleMove(e.containerPoint),
-    touchstart: (e: any) => handleStart(e.latlng, e.containerPoint),
-    touchend: handleEnd,
-    touchmove: (e: any) => handleMove(e.containerPoint),
-    dragstart: handleEnd,
-  } as any);
+  });
   return null;
 }
 
@@ -166,15 +164,24 @@ export default function App() {
   const fetchMosques = useCallback(async () => {
     try {
       const res = await fetch('/api/mosques');
+      const text = await res.text();
+      
       if (!res.ok) {
-        const text = await res.text();
         if (text.includes("Rate exceeded")) {
           throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
         }
-        throw new Error(`Server error: ${res.status}`);
+        if (res.status === 404) {
+          throw new Error("সার্ভার পাওয়া যাচ্ছে না (404)। দয়া করে কিছুক্ষণ পর চেষ্টা করুন।");
+        }
+        throw new Error(`সার্ভার এরর: ${res.status}`);
       }
-      const data = await res.json();
-      setMosques(Array.isArray(data) ? data : []);
+
+      try {
+        const data = JSON.parse(text);
+        setMosques(Array.isArray(data) ? data : []);
+      } catch (e) {
+        throw new Error("সার্ভার থেকে ভুল তথ্য এসেছে।");
+      }
     } catch (error) {
       console.error('Failed to fetch mosques:', error);
     } finally {
@@ -406,7 +413,7 @@ export default function App() {
             </div>
             <div className="flex flex-col">
               <div className="flex items-baseline gap-2">
-                <h1 className="text-sm md:text-2xl font-bold tracking-tight text-emerald-900">বিরিয়ানি ডট কম</h1>
+                <h1 className="text-[13px] md:text-2xl font-bold tracking-tight text-emerald-900">বিরিয়ানি ডট কম</h1>
                 <span className="md:hidden text-[8px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">DEV: @SIAMAFRID</span>
               </div>
               <p className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold opacity-70">নড়াইল সদর স্পেশাল</p>
