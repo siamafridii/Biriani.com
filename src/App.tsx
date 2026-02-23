@@ -161,6 +161,8 @@ export default function App() {
   const [mapTarget, setMapTarget] = useState<[number, number] | null>(null);
   const markerTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [isCreating, setIsCreating] = useState(false);
+
   const fetchMosques = useCallback(async () => {
     try {
       const res = await fetch('/api/mosques');
@@ -260,7 +262,8 @@ export default function App() {
   };
 
   const handleCreateMosque = async () => {
-    if (!pendingMosque || !newMosqueName.trim()) return;
+    if (!pendingMosque || !newMosqueName.trim() || isCreating) return;
+    setIsCreating(true);
     try {
       const res = await fetch('/api/mosques', {
         method: 'POST',
@@ -272,23 +275,32 @@ export default function App() {
         }),
       });
       
+      const text = await res.text();
       if (!res.ok) {
-        const text = await res.text();
         if (text.includes("Rate exceeded")) {
           throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
         }
-        throw new Error(text.substring(0, 50));
+        if (res.status === 404) {
+          throw new Error("সার্ভার পাওয়া যাচ্ছে না (404)। দয়া করে কিছুক্ষণ পর চেষ্টা করুন।");
+        }
+        throw new Error(`সার্ভার এরর (${res.status}): ${text.substring(0, 50)}`);
       }
 
-      const mosque = await res.json();
-      setPendingMosque(null);
-      setIsNamingMosque(false);
-      setNewMosqueName('');
-      // Immediately prompt for food
-      setIsAddingReport(mosque.id);
+      try {
+        const mosque = JSON.parse(text);
+        setPendingMosque(null);
+        setIsNamingMosque(false);
+        setNewMosqueName('');
+        // Immediately prompt for food
+        setIsAddingReport(mosque.id);
+      } catch (e) {
+        throw new Error("সার্ভার থেকে ভুল তথ্য এসেছে।");
+      }
     } catch (error) {
       console.error('Failed to create mosque:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Failed to create mosque'}`);
+      alert(`ভুল হয়েছে: ${error instanceof Error ? error.message : 'মসজিদ যোগ করা সম্ভব হয়নি'}`);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -691,10 +703,11 @@ export default function App() {
                   </button>
                   <button
                     onClick={handleCreateMosque}
-                    disabled={!newMosqueName.trim()}
-                    className="flex-[2] bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50"
+                    disabled={!newMosqueName.trim() || isCreating}
+                    className="flex-[2] bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    মসজিদ যোগ করুন
+                    {isCreating && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isCreating ? 'যোগ হচ্ছে...' : 'মসজিদ যোগ করুন'}
                   </button>
                 </div>
               </motion.div>
