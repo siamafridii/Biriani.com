@@ -108,7 +108,7 @@ async function startServer() {
   app.get("/api/mosques", (req, res) => {
     const mosques = db.prepare(`
       SELECT m.*, 
-             COALESCE(f.food_type, 'ছুলামুড়ি') as food_type, 
+             COALESCE(f.food_type, 'জানা নাই') as food_type, 
              COALESCE(f.likes, 0) as likes, 
              COALESCE(f.dislikes, 0) as dislikes, 
              f.id as report_id
@@ -129,7 +129,7 @@ async function startServer() {
       return res.status(400).json({ error: "Missing required fields" });
     }
     const result = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)").run(name, lat, lng);
-    const newMosque = { id: result.lastInsertRowid, name, lat, lng, food_type: 'ছুলামুড়ি', likes: 0, dislikes: 0, report_id: null };
+    const newMosque = { id: result.lastInsertRowid, name, lat, lng, food_type: 'জানা নাই', likes: 0, dislikes: 0, report_id: null };
     io.emit('mosque_created', newMosque);
     res.json(newMosque);
   });
@@ -179,6 +179,11 @@ async function startServer() {
       res.sendFile(path.join(__dirname, "dist", "index.html"));
     });
   }
+
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error(err.stack);
+    res.status(500).send('Something broke!');
+  });
 
   const PORT = 3000;
   httpServer.listen(PORT, "0.0.0.0", () => {

@@ -10,12 +10,13 @@ import { io } from 'socket.io-client';
 import { Plus, ThumbsUp, ThumbsDown, Utensils, Info, ChevronRight, MapPin, Search, Loader2, Map as MapIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const FOOD_TYPES = ['বিরিয়ানি', 'ছুলামুড়ি', 'তেহেরি', 'খিচুড়ি'];
+const FOOD_TYPES = ['বিরিয়ানি', 'ছুলামুড়ি', 'তেহেরি', 'খিচুড়ি', 'জানা নাই'];
 const FOOD_EMOJIS: Record<string, string> = {
   'বিরিয়ানি': '🍛',
   'ছুলামুড়ি': '🍿',
   'তেহেরি': '🍲',
-  'খিচুড়ি': '🥣'
+  'খিচুড়ি': '🥣',
+  'জানা নাই': '❓'
 };
 
 // Narail Sadar Bounds
@@ -36,7 +37,13 @@ interface Mosque {
 }
 
 // Initialize socket outside to prevent multiple connections
-const socket = io();
+let socketInstance: any = null;
+const getSocket = () => {
+  if (!socketInstance) {
+    socketInstance = io();
+  }
+  return socketInstance;
+};
 
 function MapController({ target }: { target: [number, number] | null }) {
   const map = useMap();
@@ -48,6 +55,58 @@ function MapController({ target }: { target: [number, number] | null }) {
   return null;
 }
 
+function PendingMarker({ position, onConfirm, onCancel }: { position: { lat: number, lng: number }, onConfirm: () => void, onCancel: () => void }) {
+  const markerRef = useRef<L.Marker>(null);
+
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.openPopup();
+    }
+  }, [position]);
+
+  return (
+    <Marker 
+      ref={markerRef}
+      position={[position.lat, position.lng]}
+      icon={L.divIcon({
+        className: 'custom-div-icon',
+        html: `<div class="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg border-2 border-white transform -translate-x-1/2 -translate-y-1/2 animate-bounce">
+                <span class="text-white text-2xl font-bold">+</span>
+                <div class="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-20"></div>
+              </div>`,
+        iconSize: [48, 48],
+        iconAnchor: [24, 24],
+      })}
+    >
+      <Popup className="modern-popup" closeButton={false} closeOnClick={false}>
+        <div className="p-4 text-center min-w-[200px]">
+          <p className="font-bold text-stone-800 mb-4 text-sm">নতুন মসজিদ লোকেশন এড করতে চান?</p>
+          <div className="flex gap-3">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancel();
+              }}
+              className="flex-1 py-3 text-stone-400 font-bold text-[10px] uppercase tracking-widest hover:bg-stone-50 rounded-xl transition-colors"
+            >
+              না
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfirm();
+              }}
+              className="flex-[2] bg-emerald-600 text-white px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all"
+            >
+              হ্যাঁ, যোগ করুন
+            </button>
+          </div>
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
 function MapEvents({ onLongPress }: { onLongPress: (latlng: L.LatLng) => void }) {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startPosRef = useRef<L.Point | null>(null);
@@ -57,7 +116,7 @@ function MapEvents({ onLongPress }: { onLongPress: (latlng: L.LatLng) => void })
     timerRef.current = setTimeout(() => {
       onLongPress(latlng);
       timerRef.current = null;
-    }, 3000);
+    }, 1000); // 1 second long press
   };
 
   const handleEnd = () => {
@@ -94,7 +153,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [filterFood, setFilterFood] = useState('');
   const [isAddingReport, setIsAddingReport] = useState<number | null>(null);
-  const [isCreatingMosque, setIsCreatingMosque] = useState<{ lat: number, lng: number } | null>(null);
+  const [pendingMosque, setPendingMosque] = useState<{ lat: number, lng: number } | null>(null);
+  const [isNamingMosque, setIsNamingMosque] = useState(false);
   const [isDeletingMosque, setIsDeletingMosque] = useState<number | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [deleteCode, setDeleteCode] = useState('');
@@ -106,8 +166,15 @@ export default function App() {
   const fetchMosques = useCallback(async () => {
     try {
       const res = await fetch('/api/mosques');
+      if (!res.ok) {
+        const text = await res.text();
+        if (text.includes("Rate exceeded")) {
+          throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
+        }
+        throw new Error(`Server error: ${res.status}`);
+      }
       const data = await res.json();
-      setMosques(data);
+      setMosques(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch mosques:', error);
     } finally {
@@ -116,6 +183,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const socket = getSocket();
     fetchMosques();
 
     // Safety timeout to prevent infinite loading
@@ -165,62 +233,96 @@ export default function App() {
 
   const handleAddReport = async (mosqueId: number, foodType: string) => {
     try {
-      await fetch('/api/reports', {
+      const res = await fetch('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mosque_id: mosqueId, food_type: foodType }),
       });
+      const text = await res.text();
+      if (!res.ok) {
+        if (text.includes("Rate exceeded")) {
+          throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
+        }
+        throw new Error(text.substring(0, 50));
+      }
       setIsAddingReport(null);
     } catch (error) {
       console.error('Failed to add report:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to add report'}`);
     }
   };
 
   const handleCreateMosque = async () => {
-    if (!isCreatingMosque || !newMosqueName.trim()) return;
+    if (!pendingMosque || !newMosqueName.trim()) return;
     try {
       const res = await fetch('/api/mosques', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           name: newMosqueName, 
-          lat: isCreatingMosque.lat, 
-          lng: isCreatingMosque.lng 
+          lat: pendingMosque.lat, 
+          lng: pendingMosque.lng 
         }),
       });
+      
+      if (!res.ok) {
+        const text = await res.text();
+        if (text.includes("Rate exceeded")) {
+          throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
+        }
+        throw new Error(text.substring(0, 50));
+      }
+
       const mosque = await res.json();
-      setIsCreatingMosque(null);
+      setPendingMosque(null);
+      setIsNamingMosque(false);
       setNewMosqueName('');
       // Immediately prompt for food
       setIsAddingReport(mosque.id);
     } catch (error) {
       console.error('Failed to create mosque:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to create mosque'}`);
     }
   };
 
   const handleDeleteMosque = async () => {
     if (!isDeletingMosque || deleteCode !== '1311') return;
     try {
-      await fetch(`/api/mosques/${isDeletingMosque}`, {
+      const res = await fetch(`/api/mosques/${isDeletingMosque}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: deleteCode }),
       });
+      const text = await res.text();
+      if (!res.ok) {
+        if (text.includes("Rate exceeded")) {
+          throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
+        }
+        throw new Error(text.substring(0, 50));
+      }
       setIsDeletingMosque(null);
       setDeleteCode('');
     } catch (error) {
       console.error('Failed to delete mosque:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to delete mosque'}`);
     }
   };
 
   const handleVote = async (reportId: number, type: 'like' | 'dislike') => {
     if (!reportId) return;
     try {
-      await fetch('/api/vote', {
+      const res = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report_id: reportId, type }),
       });
+      const text = await res.text();
+      if (!res.ok) {
+        if (text.includes("Rate exceeded")) {
+          throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
+        }
+        throw new Error(text.substring(0, 50));
+      }
     } catch (error) {
       console.error('Failed to vote:', error);
     }
@@ -240,8 +342,8 @@ export default function App() {
   };
 
   const filteredMosques = useMemo(() => {
-    // Only show mosques that have a report (no more "+" icons)
-    return mosques.filter(m => m.report_id !== null && (!filterFood || m.food_type === filterFood));
+    // Show all mosques, filtering by food type if selected
+    return mosques.filter(m => !filterFood || m.food_type === filterFood);
   }, [mosques, filterFood]);
 
   // Memoize icon creation
@@ -304,7 +406,7 @@ export default function App() {
             </div>
             <div className="flex flex-col">
               <div className="flex items-baseline gap-2">
-                <h1 className="text-2xl font-bold tracking-tight text-emerald-900">বিরিয়ানি ডট কম</h1>
+                <h1 className="text-sm md:text-2xl font-bold tracking-tight text-emerald-900">বিরিয়ানি ডট কম</h1>
                 <span className="md:hidden text-[8px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">DEV: @SIAMAFRID</span>
               </div>
               <p className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold opacity-70">নড়াইল সদর স্পেশাল</p>
@@ -332,9 +434,9 @@ export default function App() {
         </div>
       </header>
 
-      <div className="flex-1 flex relative">
+      <div className="flex-1 flex relative min-h-0">
         {/* Sidebar */}
-        <aside className="hidden lg:flex flex-col w-80 bg-white border-r border-stone-200 overflow-y-auto p-6 gap-6">
+        <aside className="hidden lg:flex flex-col w-80 bg-white border-r border-stone-200 overflow-y-auto p-6 gap-6 min-h-0">
           <div className="flex items-center gap-2 text-stone-500">
             <Info className="w-4 h-4" />
             <span className="text-xs font-bold uppercase tracking-wider">সদর মসজিদের তালিকা</span>
@@ -367,10 +469,10 @@ export default function App() {
         </aside>
 
         {/* Map Area */}
-        <main className="flex-1 relative">
+        <main className="flex-1 relative min-h-0">
           <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur p-3 rounded-xl border border-stone-200 shadow-sm flex items-center gap-2">
             <MapIcon className="w-4 h-4 text-emerald-600" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-stone-500">৩ সেকেন্ড চেপে ধরে নতুন মসজিদ যোগ করুন</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-stone-500">ম্যাপে চেপে ধরে নতুন মসজিদ যোগ করুন</span>
           </div>
 
           <MapContainer
@@ -387,8 +489,16 @@ export default function App() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             
-            <MapEvents onLongPress={(latlng) => setIsCreatingMosque({ lat: latlng.lat, lng: latlng.lng })} />
+            <MapEvents onLongPress={(latlng) => setPendingMosque({ lat: latlng.lat, lng: latlng.lng })} />
             <MapController target={mapTarget} />
+
+            {pendingMosque && (
+              <PendingMarker 
+                position={pendingMosque}
+                onConfirm={() => setIsNamingMosque(true)}
+                onCancel={() => setPendingMosque(null)}
+              />
+            )}
 
             {filteredMosques.map((mosque) => (
               <Marker 
@@ -401,7 +511,7 @@ export default function App() {
                     markerTimerRef.current = setTimeout(() => {
                       setIsDeletingMosque(mosque.id);
                       markerTimerRef.current = null;
-                    }, 3000);
+                    }, 1000);
                   },
                   mouseup: () => {
                     if (markerTimerRef.current) {
@@ -413,7 +523,7 @@ export default function App() {
                     markerTimerRef.current = setTimeout(() => {
                       setIsDeletingMosque(mosque.id);
                       markerTimerRef.current = null;
-                    }, 3000);
+                    }, 1000);
                   },
                   touchend: () => {
                     if (markerTimerRef.current) {
@@ -539,7 +649,7 @@ export default function App() {
 
         {/* Create Mosque Modal */}
         <AnimatePresence>
-          {isCreatingMosque && (
+          {isNamingMosque && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -567,7 +677,7 @@ export default function App() {
                 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setIsCreatingMosque(null)}
+                    onClick={() => setIsNamingMosque(false)}
                     className="flex-1 py-4 text-stone-400 font-bold hover:text-stone-600 transition-colors text-sm"
                   >
                     বাতিল
@@ -660,9 +770,10 @@ export default function App() {
                     <button
                       key={food}
                       onClick={() => handleAddReport(isAddingReport, food)}
-                      className="group relative p-6 rounded-3xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50 transition-all text-center"
+                      className="group relative p-6 rounded-3xl border-2 border-stone-100 hover:border-emerald-500 hover:bg-emerald-50 transition-all text-center flex flex-col items-center gap-2"
                     >
-                      <span className="block text-lg font-bold text-stone-800 group-hover:text-emerald-900">{food}</span>
+                      <span className="text-2xl">{FOOD_EMOJIS[food]}</span>
+                      <span className="block text-sm font-bold text-stone-800 group-hover:text-emerald-900">{food}</span>
                       <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <div className="w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
                           <Plus className="w-3 h-3 text-white" />
