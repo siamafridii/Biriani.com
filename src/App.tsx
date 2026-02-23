@@ -198,6 +198,11 @@ export default function App() {
     const socket = getSocket();
     fetchMosques();
 
+    // Polling fallback for Vercel (since WebSockets don't work there)
+    const pollingInterval = setInterval(() => {
+      fetchMosques();
+    }, 15000); // Poll every 15 seconds
+
     // Safety timeout to prevent infinite loading
     const timeout = setTimeout(() => {
       setLoading(false);
@@ -220,13 +225,16 @@ export default function App() {
     };
 
     const handleMosqueCreated = (newMosque: Mosque) => {
-      setMosques(prev => [...prev, newMosque]);
+      setMosques(prev => {
+        if (prev.find(m => m.id === newMosque.id)) return prev;
+        return [...prev, newMosque];
+      });
     };
 
-    const handleMosqueDeleted = (id: string) => {
-      const mosqueId = parseInt(id);
+    const handleMosqueDeleted = (id: any) => {
+      const mosqueId = typeof id === 'object' ? id.id : parseInt(id);
       setMosques(prev => prev.filter(m => m.id !== mosqueId));
-      if (activeMosque?.id === mosqueId) setActiveMosque(null);
+      setActiveMosque(current => current?.id === mosqueId ? null : current);
     };
 
     socket.on('report_added', handleReportAdded);
@@ -236,12 +244,13 @@ export default function App() {
 
     return () => {
       clearTimeout(timeout);
+      clearInterval(pollingInterval);
       socket.off('report_added', handleReportAdded);
       socket.off('vote_updated', handleVoteUpdated);
       socket.off('mosque_created', handleMosqueCreated);
       socket.off('mosque_deleted', handleMosqueDeleted);
     };
-  }, [fetchMosques, activeMosque]);
+  }, [fetchMosques]);
 
   const handleAddReport = async (mosqueId: number, foodType: string) => {
     try {
