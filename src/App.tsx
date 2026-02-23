@@ -175,6 +175,9 @@ export default function App() {
         if (res.status === 404) {
           throw new Error("সার্ভার পাওয়া যাচ্ছে না (404)। দয়া করে কিছুক্ষণ পর চেষ্টা করুন।");
         }
+        if (res.status === 405) {
+          throw new Error("সার্ভার এই মেথডটি সাপোর্ট করছে না (405)। দয়া করে ডেভেলপারকে জানান।");
+        }
         throw new Error(`সার্ভার এরর: ${res.status}`);
       }
 
@@ -280,10 +283,10 @@ export default function App() {
         if (text.includes("Rate exceeded")) {
           throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
         }
-        if (res.status === 404) {
-          throw new Error("সার্ভার পাওয়া যাচ্ছে না (404)। দয়া করে কিছুক্ষণ পর চেষ্টা করুন।");
+        if (res.status === 405) {
+          throw new Error("সার্ভার এই মেথডটি সাপোর্ট করছে না (405)। দয়া করে ডেভেলপারকে জানান।");
         }
-        throw new Error(`সার্ভার এরর (${res.status}): ${text.substring(0, 50)}`);
+        throw new Error(`সার্ভার এরর (${res.status}): ${text.substring(0, 100)}`);
       }
 
       try {

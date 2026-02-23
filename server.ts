@@ -104,47 +104,57 @@ async function startServer() {
 
   app.use(express.json());
 
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
+
   // API Routes
   app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-  app.get(["/api/mosques", "/api/mosques/"], (req, res) => {
-    try {
-      const mosques = db.prepare(`
-        SELECT m.*, 
-               COALESCE(f.food_type, 'জানা নাই') as food_type, 
-               COALESCE(f.likes, 0) as likes, 
-               COALESCE(f.dislikes, 0) as dislikes, 
-               f.id as report_id
-        FROM mosques m
-        LEFT JOIN food_reports f ON m.id = f.mosque_id
-        WHERE f.id IS NULL OR f.id = (
-          SELECT id FROM food_reports 
-          WHERE mosque_id = m.id 
-          ORDER BY created_at DESC LIMIT 1
-        )
-      `).all();
-      res.json(mosques);
-    } catch (err) {
-      res.status(500).json({ error: "Database error" });
-    }
-  });
+  app.route("/api/mosques")
+    .get((req, res) => {
+      console.log('GET /api/mosques');
+      try {
+        const mosques = db.prepare(`
+          SELECT m.*, 
+                 COALESCE(f.food_type, 'জানা নাই') as food_type, 
+                 COALESCE(f.likes, 0) as likes, 
+                 COALESCE(f.dislikes, 0) as dislikes, 
+                 f.id as report_id
+          FROM mosques m
+          LEFT JOIN food_reports f ON m.id = f.mosque_id
+          WHERE f.id IS NULL OR f.id = (
+            SELECT id FROM food_reports 
+            WHERE mosque_id = m.id 
+            ORDER BY created_at DESC LIMIT 1
+          )
+        `).all();
+        res.json(mosques);
+      } catch (err) {
+        console.error('Database error in GET /api/mosques:', err);
+        res.status(500).json({ error: "Database error" });
+      }
+    })
+    .post((req, res) => {
+      console.log('POST /api/mosques', req.body);
+      const { name, lat, lng } = req.body;
+      if (!name || !lat || !lng) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      try {
+        const result = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)").run(name, lat, lng);
+        const newMosque = { id: result.lastInsertRowid, name, lat, lng, food_type: 'জানা নাই', likes: 0, dislikes: 0, report_id: null };
+        io.emit('mosque_created', newMosque);
+        res.json(newMosque);
+      } catch (err) {
+        console.error('Database error in POST /api/mosques:', err);
+        res.status(500).json({ error: "Failed to create mosque" });
+      }
+    });
 
-  app.post(["/api/mosques", "/api/mosques/"], (req, res) => {
-    const { name, lat, lng } = req.body;
-    if (!name || !lat || !lng) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-    try {
-      const result = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)").run(name, lat, lng);
-      const newMosque = { id: result.lastInsertRowid, name, lat, lng, food_type: 'জানা নাই', likes: 0, dislikes: 0, report_id: null };
-      io.emit('mosque_created', newMosque);
-      res.json(newMosque);
-    } catch (err) {
-      res.status(500).json({ error: "Failed to create mosque" });
-    }
-  });
-
-  app.delete(["/api/mosques/:id", "/api/mosques/:id/"], (req, res) => {
+  app.delete("/api/mosques/:id", (req, res) => {
+    console.log('DELETE /api/mosques/:id', req.params.id);
     const { id } = req.params;
     const { code } = req.body;
     if (code !== "1311") {
@@ -156,11 +166,13 @@ async function startServer() {
       io.emit('mosque_deleted', id);
       res.json({ success: true });
     } catch (err) {
+      console.error('Database error in DELETE /api/mosques:', err);
       res.status(500).json({ error: "Failed to delete mosque" });
     }
   });
 
-  app.post(["/api/reports", "/api/reports/"], (req, res) => {
+  app.post("/api/reports", (req, res) => {
+    console.log('POST /api/reports', req.body);
     const { mosque_id, food_type } = req.body;
     try {
       const info = db.prepare("INSERT INTO food_reports (mosque_id, food_type) VALUES (?, ?)").run(mosque_id, food_type);
@@ -168,11 +180,13 @@ async function startServer() {
       io.emit("report_added", newReport);
       res.json(newReport);
     } catch (err) {
+      console.error('Database error in POST /api/reports:', err);
       res.status(500).json({ error: "Failed to add report" });
     }
   });
 
-  app.post(["/api/vote", "/api/vote/"], (req, res) => {
+  app.post("/api/vote", (req, res) => {
+    console.log('POST /api/vote', req.body);
     const { report_id, type } = req.body; // type: 'like' or 'dislike'
     try {
       if (type === "like") {
@@ -184,8 +198,13 @@ async function startServer() {
       io.emit("vote_updated", updated);
       res.json(updated);
     } catch (err) {
+      console.error('Database error in POST /api/vote:', err);
       res.status(500).json({ error: "Failed to vote" });
     }
+  });
+
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
   });
 
   // Vite middleware for development
