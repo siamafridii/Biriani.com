@@ -34,74 +34,63 @@ db.exec(`
 // Seed some initial mosques in Narail Sadar if empty
 const mosqueCount = db.prepare("SELECT COUNT(*) as count FROM mosques").get() as { count: number };
 
-// Always re-seed if we want to update the list with more accurate data
-if (mosqueCount.count > 0) {
-  db.prepare("DELETE FROM mosques").run();
+if (mosqueCount.count === 0) {
+  const initialMosques = [
+    { name: "Narail Central Jame Mosque (সদর)", lat: 23.1689, lng: 89.5012 },
+    { name: "Rupganj Bazar Jame Mosque (সদর)", lat: 23.1720, lng: 89.5050 },
+    { name: "Narail District Model Mosque (সদর)", lat: 23.1650, lng: 89.4980 },
+    { name: "Vatshala Jame Mosque (সদর)", lat: 23.1800, lng: 89.5100 },
+    { name: "Durgapur Jame Mosque (সদর)", lat: 23.1550, lng: 89.4900 },
+    { name: "Mahiskhola Jame Mosque (সদর)", lat: 23.1620, lng: 89.5120 },
+    { name: "Kurigram Jame Mosque (সদর)", lat: 23.1750, lng: 89.4950 },
+    { name: "Aladatpur Jame Mosque (সদর)", lat: 23.1670, lng: 89.5080 },
+    { name: "Bhowakhali Jame Mosque (সদর)", lat: 23.1580, lng: 89.5150 },
+    { name: "Chachra Jame Mosque (সদর)", lat: 23.1850, lng: 89.4850 },
+    { name: "Dumurtala Jame Mosque (সদর)", lat: 23.1450, lng: 89.5000 },
+    { name: "Gobra Jame Mosque (সদর)", lat: 23.1300, lng: 89.5200 },
+    { name: "Habakhali Jame Mosque (সদর)", lat: 23.2100, lng: 89.4800 },
+    { name: "Kalia Road Jame Mosque (সদর)", lat: 23.1500, lng: 89.5300 },
+    { name: "Mulia Jame Mosque (সদর)", lat: 23.1200, lng: 89.4700 },
+    { name: "Shahabad Jame Mosque (সদর)", lat: 23.2200, lng: 89.5100 },
+    { name: "Tularampur Jame Mosque (সদর)", lat: 23.2000, lng: 89.4600 },
+    { name: "Bansgram Jame Mosque (সদর)", lat: 23.2400, lng: 89.5300 },
+    { name: "Bhaduli Jame Mosque (সদর)", lat: 23.1900, lng: 89.5500 },
+    { name: "Chandrapur Jame Mosque (সদর)", lat: 23.1700, lng: 89.5400 },
+    { name: "Debhog Jame Mosque (সদর)", lat: 23.1600, lng: 89.4600 },
+    { name: "Ghorakhali Jame Mosque (সদর)", lat: 23.1400, lng: 89.4800 },
+    { name: "Itna Jame Mosque (সদর)", lat: 23.1100, lng: 89.5100 },
+    { name: "Kalipur Jame Mosque (সদর)", lat: 23.1800, lng: 89.5200 },
+    { name: "Lakshmipasha Jame Mosque (সদর)", lat: 23.2000, lng: 89.5800 },
+    { name: "Madhu Jame Mosque (সদর)", lat: 23.1300, lng: 89.4500 },
+    { name: "Nidhipur Jame Mosque (সদর)", lat: 23.1700, lng: 89.4400 },
+    { name: "Panchagram Jame Mosque (সদর)", lat: 23.2200, lng: 89.4300 },
+    { name: "Ratanpur Jame Mosque (সদর)", lat: 23.1900, lng: 89.4200 },
+    { name: "Singia Jame Mosque (সদর)", lat: 23.1500, lng: 89.4100 },
+    { name: "Ujirpur Jame Mosque (সদর)", lat: 23.1200, lng: 89.5500 },
+    { name: "Zila Parishad Mosque (সদর)", lat: 23.1660, lng: 89.5030 },
+    { name: "Police Line Mosque (সদর)", lat: 23.1640, lng: 89.5060 },
+    { name: "Hospital Road Mosque (সদর)", lat: 23.1695, lng: 89.5045 },
+    { name: "Bus Terminal Mosque (সদর)", lat: 23.1730, lng: 89.5000 },
+    { name: "Court Jame Mosque (সদর)", lat: 23.1675, lng: 89.4990 },
+    { name: "Sadar Hospital Mosque (সদর)", lat: 23.1705, lng: 89.5020 },
+    { name: "Primary School Road Mosque (সদর)", lat: 23.1630, lng: 89.5090 },
+    { name: "College Road Jame Mosque (সদর)", lat: 23.1710, lng: 89.5070 },
+    { name: "Stadium Road Mosque (সদর)", lat: 23.1610, lng: 89.5025 },
+    { name: "Shishu Park Mosque (সদর)", lat: 23.1655, lng: 89.5110 },
+    { name: "River Side Jame Mosque (সদর)", lat: 23.1740, lng: 89.5095 },
+    { name: "Old Town Jame Mosque (সদর)", lat: 23.1760, lng: 89.5035 },
+    { name: "New Market Jame Mosque (সদর)", lat: 23.1680, lng: 89.5130 },
+    { name: "Railway Station Road Mosque (সদর)", lat: 23.1590, lng: 89.5055 },
+    { name: "Industrial Area Mosque (সদর)", lat: 23.1570, lng: 89.5180 },
+    { name: "West Kurigram Mosque (সদর)", lat: 23.1770, lng: 89.4900 },
+    { name: "East Mahiskhola Mosque (সদর)", lat: 23.1600, lng: 89.5250 },
+    { name: "South Aladatpur Mosque (সদর)", lat: 23.1640, lng: 89.5150 },
+    { name: "North Rupganj Mosque (সদর)", lat: 23.1780, lng: 89.5100 }
+  ];
+
+  const insert = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)");
+  initialMosques.forEach(m => insert.run(m.name, m.lat, m.lng));
 }
-
-const initialMosques = [
-  { name: "নড়াইল কেন্দ্রীয় জামে মসজিদ (সদর)", lat: 23.1689, lng: 89.5012 },
-  { name: "রূপগঞ্জ বাজার জামে মসজিদ (সদর)", lat: 23.1720, lng: 89.5050 },
-  { name: "নড়াইল জেলা মডেল মসজিদ (সদর)", lat: 23.1650, lng: 89.4980 },
-  { name: "আদালতপুর জামে মসজিদ (সদর)", lat: 23.1670, lng: 89.5080 },
-  { name: "কুড়িগ্রাম জামে মসজিদ (সদর)", lat: 23.1750, lng: 89.4950 },
-  { name: "মহিষখোলা জামে মসজিদ (সদর)", lat: 23.1620, lng: 89.5120 },
-  { name: "ভওয়াখালী জামে মসজিদ (সদর)", lat: 23.1580, lng: 89.5150 },
-  { name: "পুলিশ লাইন মসজিদ (সদর)", lat: 23.1640, lng: 89.5060 },
-  { name: "সদর হাসপাতাল মসজিদ (সদর)", lat: 23.1705, lng: 89.5020 },
-  { name: "কোর্ট জামে মসজিদ (সদর)", lat: 23.1675, lng: 89.4990 },
-  { name: "বাস টার্মিনাল মসজিদ (সদর)", lat: 23.1730, lng: 89.5000 },
-  { name: "জেলা পরিষদ মসজিদ (সদর)", lat: 23.1660, lng: 89.5030 },
-  { name: "ভাটশালা জামে মসজিদ (সদর)", lat: 23.1800, lng: 89.5100 },
-  { name: "দুর্গাপুর জামে মসজিদ (সদর)", lat: 23.1550, lng: 89.4900 },
-  { name: "চাচড়া জামে মসজিদ (সদর)", lat: 23.1850, lng: 89.4850 },
-  { name: "ডুমুরতলা জামে মসজিদ (সদর)", lat: 23.1450, lng: 89.5000 },
-  { name: "গোবরা জামে মসজিদ (সদর)", lat: 23.1300, lng: 89.5200 },
-  { name: "মুলিয়া জামে মসজিদ (সদর)", lat: 23.1200, lng: 89.4700 },
-  { name: "তুলারামপুর জামে মসজিদ (সদর)", lat: 23.2000, lng: 89.4600 },
-  { name: "শাহাবাদ জামে মসজিদ (সদর)", lat: 23.2200, lng: 89.5100 },
-  { name: "হাবাখালী জামে মসজিদ (সদর)", lat: 23.2100, lng: 89.4800 },
-  { name: "বাঁশগ্রাম জামে মসজিদ (সদর)", lat: 23.2400, lng: 89.5300 },
-  { name: "মাইজপাড়া জামে মসজিদ (সদর)", lat: 23.2345, lng: 89.4567 },
-  { name: "সিংগিয়া জামে মসজিদ (সদর)", lat: 23.1500, lng: 89.4100 },
-  { name: "রতনপুর জামে মসজিদ (সদর)", lat: 23.1900, lng: 89.4200 },
-  { name: "পঞ্চগ্রাম জামে মসজিদ (সদর)", lat: 23.2200, lng: 89.4300 },
-  { name: "নিধিপুর জামে মসজিদ (সদর)", lat: 23.1700, lng: 89.4400 },
-  { name: "মধু জামে মসজিদ (সদর)", lat: 23.1300, lng: 89.4500 },
-  { name: "দেবভোগ জামে মসজিদ (সদর)", lat: 23.1600, lng: 89.4600 },
-  { name: "ঘোড়াখালী জামে মসজিদ (সদর)", lat: 23.1400, lng: 89.4800 },
-  { name: "ইতনা জামে মসজিদ (সদর)", lat: 23.1100, lng: 89.5100 },
-  { name: "কালীপুর জামে মসজিদ (সদর)", lat: 23.1800, lng: 89.5200 },
-  { name: "চন্দ্রপুর জামে মসজিদ (সদর)", lat: 23.1700, lng: 89.5400 },
-  { name: "ভাদুলী জামে মসজিদ (সদর)", lat: 23.1900, lng: 89.5500 },
-  { name: "উজিরপুর জামে মসজিদ (সদর)", lat: 23.1200, lng: 89.5500 },
-  { name: "কালিয়া রোড জামে মসজিদ (সদর)", lat: 23.1500, lng: 89.5300 },
-  { name: "লক্ষ্মীপাশা জামে মসজিদ (সদর)", lat: 23.2000, lng: 89.5800 },
-  { name: "দক্ষিণ আদালতপুর মসজিদ (সদর)", lat: 23.1640, lng: 89.5150 },
-  { name: "উত্তর রূপগঞ্জ মসজিদ (সদর)", lat: 23.1780, lng: 89.5100 },
-  { name: "পশ্চিম কুড়িগ্রাম মসজিদ (সদর)", lat: 23.1770, lng: 89.4900 },
-  { name: "পূর্ব মহিষখোলা মসজিদ (সদর)", lat: 23.1600, lng: 89.5250 },
-  { name: "ইন্ডাস্ট্রিয়াল এরিয়া মসজিদ (সদর)", lat: 23.1570, lng: 89.5180 },
-  { name: "রেলওয়ে স্টেশন রোড মসজিদ (সদর)", lat: 23.1590, lng: 89.5055 },
-  { name: "নিউ মার্কেট জামে মসজিদ (সদর)", lat: 23.1680, lng: 89.5130 },
-  { name: "পুরাতন শহর জামে মসজিদ (সদর)", lat: 23.1760, lng: 89.5035 },
-  { name: "নদীর পাড় জামে মসজিদ (সদর)", lat: 23.1740, lng: 89.5095 },
-  { name: "শিশু পার্ক মসজিদ (সদর)", lat: 23.1655, lng: 89.5110 },
-  { name: "স্টেডিয়াম রোড মসজিদ (সদর)", lat: 23.1610, lng: 89.5025 },
-  { name: "কলেজ রোড জামে মসজিদ (সদর)", lat: 23.1710, lng: 89.5070 },
-  { name: "প্রাইমারি স্কুল রোড মসজিদ (সদর)", lat: 23.1630, lng: 89.5090 },
-  { name: "নড়াইল সরকারি কলেজ মসজিদ (সদর)", lat: 23.1690, lng: 89.5085 },
-  { name: "নড়াইল ভিক্টোরিয়া কলেজ মসজিদ (সদর)", lat: 23.1715, lng: 89.5040 },
-  { name: "ডিসি অফিস মসজিদ (সদর)", lat: 23.1665, lng: 89.4975 },
-  { name: "এসপি অফিস মসজিদ (সদর)", lat: 23.1645, lng: 89.5055 },
-  { name: "নড়াইল টেকনিক্যাল স্কুল মসজিদ (সদর)", lat: 23.1755, lng: 89.5120 },
-  { name: "নড়াইল পলিটেকনিক ইনস্টিটিউট মসজিদ (সদর)", lat: 23.1820, lng: 89.5150 },
-  { name: "নড়াইল সদর থানা মসজিদ (সদর)", lat: 23.1672, lng: 89.5015 },
-  { name: "নড়াইল ফায়ার সার্ভিস মসজিদ (সদর)", lat: 23.1725, lng: 89.4985 }
-];
-
-const insert = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)");
-initialMosques.forEach(m => insert.run(m.name, m.lat, m.lng));
 
 
 async function startServer() {
@@ -132,6 +121,29 @@ async function startServer() {
       )
     `).all();
     res.json(mosques);
+  });
+
+  app.post("/api/mosques", (req, res) => {
+    const { name, lat, lng } = req.body;
+    if (!name || !lat || !lng) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    const result = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)").run(name, lat, lng);
+    const newMosque = { id: result.lastInsertRowid, name, lat, lng, food_type: 'ছুলামুড়ি', likes: 0, dislikes: 0, report_id: null };
+    io.emit('mosque_created', newMosque);
+    res.json(newMosque);
+  });
+
+  app.delete("/api/mosques/:id", (req, res) => {
+    const { id } = req.params;
+    const { code } = req.body;
+    if (code !== "1311") {
+      return res.status(403).json({ error: "Invalid code" });
+    }
+    db.prepare("DELETE FROM food_reports WHERE mosque_id = ?").run(id);
+    db.prepare("DELETE FROM mosques WHERE id = ?").run(id);
+    io.emit('mosque_deleted', id);
+    res.json({ success: true });
   });
 
   app.post("/api/reports", (req, res) => {

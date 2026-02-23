@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { io } from 'socket.io-client';
-import { Plus, ThumbsUp, ThumbsDown, Utensils, Info, ChevronRight, MapPin, Search, Loader2 } from 'lucide-react';
+import { Plus, ThumbsUp, ThumbsDown, Utensils, Info, ChevronRight, MapPin, Search, Loader2, Map as MapIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const FOOD_TYPES = ['বিরিয়ানি', 'ছুলামুড়ি', 'তেহেরি', 'খিচুড়ি'];
@@ -38,12 +38,66 @@ interface Mosque {
 // Initialize socket outside to prevent multiple connections
 const socket = io();
 
+function MapController({ target }: { target: [number, number] | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (target) {
+      map.flyTo(target, 16, { duration: 1.5 });
+    }
+  }, [target, map]);
+  return null;
+}
+
+function MapEvents({ onLongPress }: { onLongPress: (latlng: L.LatLng) => void }) {
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const startPosRef = useRef<L.Point | null>(null);
+
+  useMapEvents({
+    mousedown: (e) => {
+      startPosRef.current = e.containerPoint;
+      timerRef.current = setTimeout(() => {
+        onLongPress(e.latlng);
+        timerRef.current = null;
+      }, 3000);
+    },
+    mouseup: () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    },
+    mousemove: (e) => {
+      if (timerRef.current && startPosRef.current) {
+        const dist = startPosRef.current.distanceTo(e.containerPoint);
+        if (dist > 10) { // Allow 10px jitter
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      }
+    },
+    dragstart: () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    },
+  });
+  return null;
+}
+
 export default function App() {
   const [mosques, setMosques] = useState<Mosque[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterFood, setFilterFood] = useState('');
   const [isAddingReport, setIsAddingReport] = useState<number | null>(null);
+  const [isCreatingMosque, setIsCreatingMosque] = useState<{ lat: number, lng: number } | null>(null);
+  const [isDeletingMosque, setIsDeletingMosque] = useState<number | null>(null);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [deleteCode, setDeleteCode] = useState('');
+  const [newMosqueName, setNewMosqueName] = useState('');
   const [activeMosque, setActiveMosque] = useState<Mosque | null>(null);
+  const [mapTarget, setMapTarget] = useState<[number, number] | null>(null);
+  const markerTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchMosques = useCallback(async () => {
     try {
@@ -81,15 +135,29 @@ export default function App() {
       ));
     };
 
+    const handleMosqueCreated = (newMosque: Mosque) => {
+      setMosques(prev => [...prev, newMosque]);
+    };
+
+    const handleMosqueDeleted = (id: string) => {
+      const mosqueId = parseInt(id);
+      setMosques(prev => prev.filter(m => m.id !== mosqueId));
+      if (activeMosque?.id === mosqueId) setActiveMosque(null);
+    };
+
     socket.on('report_added', handleReportAdded);
     socket.on('vote_updated', handleVoteUpdated);
+    socket.on('mosque_created', handleMosqueCreated);
+    socket.on('mosque_deleted', handleMosqueDeleted);
 
     return () => {
       clearTimeout(timeout);
       socket.off('report_added', handleReportAdded);
       socket.off('vote_updated', handleVoteUpdated);
+      socket.off('mosque_created', handleMosqueCreated);
+      socket.off('mosque_deleted', handleMosqueDeleted);
     };
-  }, [fetchMosques]);
+  }, [fetchMosques, activeMosque]);
 
   const handleAddReport = async (mosqueId: number, foodType: string) => {
     try {
@@ -101,6 +169,43 @@ export default function App() {
       setIsAddingReport(null);
     } catch (error) {
       console.error('Failed to add report:', error);
+    }
+  };
+
+  const handleCreateMosque = async () => {
+    if (!isCreatingMosque || !newMosqueName.trim()) return;
+    try {
+      const res = await fetch('/api/mosques', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: newMosqueName, 
+          lat: isCreatingMosque.lat, 
+          lng: isCreatingMosque.lng 
+        }),
+      });
+      const mosque = await res.json();
+      setIsCreatingMosque(null);
+      setNewMosqueName('');
+      // Immediately prompt for food
+      setIsAddingReport(mosque.id);
+    } catch (error) {
+      console.error('Failed to create mosque:', error);
+    }
+  };
+
+  const handleDeleteMosque = async () => {
+    if (!isDeletingMosque || deleteCode !== '1311') return;
+    try {
+      await fetch(`/api/mosques/${isDeletingMosque}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: deleteCode }),
+      });
+      setIsDeletingMosque(null);
+      setDeleteCode('');
+    } catch (error) {
+      console.error('Failed to delete mosque:', error);
     }
   };
 
@@ -117,17 +222,29 @@ export default function App() {
     }
   };
 
+  const handleSearchSelect = (food: string) => {
+    setFilterFood(food);
+    if (food) {
+      setIsSearchModalOpen(true);
+    }
+  };
+
+  const goToMosque = (mosque: Mosque) => {
+    setMapTarget([mosque.lat, mosque.lng]);
+    setActiveMosque(mosque);
+    setIsSearchModalOpen(false);
+  };
+
   const filteredMosques = useMemo(() => {
-    return mosques.filter(m => !filterFood || m.food_type === filterFood);
+    // Only show mosques that have a report (no more "+" icons)
+    return mosques.filter(m => m.report_id !== null && (!filterFood || m.food_type === filterFood));
   }, [mosques, filterFood]);
 
-  // Memoize icon creation to prevent re-creating on every render
-  const getIcon = useCallback((foodType: string, hasReport: boolean) => {
-    const color = !hasReport ? 'bg-stone-400' : 'bg-emerald-600';
+  // Memoize icon creation
+  const getIcon = useCallback((foodType: string) => {
+    const color = 'bg-emerald-600';
     const emoji = FOOD_EMOJIS[foodType] || '📍';
-    const content = !hasReport 
-      ? '<span class="text-white text-xl font-bold">+</span>' 
-      : `<div class="flex flex-col items-center">
+    const content = `<div class="flex flex-col items-center">
            <span class="text-lg leading-none">${emoji}</span>
            <span class="text-white text-[8px] font-black uppercase leading-none mt-0.5">${foodType}</span>
          </div>`;
@@ -196,7 +313,7 @@ export default function App() {
               <select
                 className="appearance-none w-full pl-12 pr-10 py-3 rounded-2xl bg-stone-100 border-transparent focus:bg-white focus:border-emerald-200 focus:ring-4 focus:ring-emerald-50/50 transition-all outline-none text-sm font-medium cursor-pointer"
                 value={filterFood}
-                onChange={(e) => setFilterFood(e.target.value)}
+                onChange={(e) => handleSearchSelect(e.target.value)}
               >
                 <option value="">খাবার দিয়ে খুঁজুন (সব খাবার)</option>
                 {FOOD_TYPES.map(f => <option key={f} value={f}>{f}</option>)}
@@ -209,7 +326,7 @@ export default function App() {
       </header>
 
       <div className="flex-1 flex relative">
-        {/* Sidebar for Stats/List */}
+        {/* Sidebar */}
         <aside className="hidden lg:flex flex-col w-80 bg-white border-r border-stone-200 overflow-y-auto p-6 gap-6">
           <div className="flex items-center gap-2 text-stone-500">
             <Info className="w-4 h-4" />
@@ -221,16 +338,22 @@ export default function App() {
               <motion.button
                 key={m.id}
                 whileHover={{ x: 4 }}
-                onClick={() => setActiveMosque(m)}
+                onClick={() => goToMosque(m)}
                 className={`flex flex-col items-start p-4 rounded-2xl border transition-all text-left group ${activeMosque?.id === m.id ? 'border-emerald-500 bg-emerald-50' : 'border-stone-100 hover:border-emerald-200 hover:bg-emerald-50/30'}`}
               >
                 <div className="flex items-center justify-between w-full">
                   <span className="text-sm font-bold text-stone-800 group-hover:text-emerald-900">{m.name}</span>
                   <ChevronRight className={`w-4 h-4 transition-colors ${activeMosque?.id === m.id ? 'text-emerald-500' : 'text-stone-300 group-hover:text-emerald-500'}`} />
                 </div>
-                <span className="text-[10px] mt-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold uppercase">
-                  {m.food_type}
-                </span>
+                <div className="flex items-center justify-between w-full mt-1">
+                  <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-bold uppercase">
+                    {m.food_type}
+                  </span>
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-stone-400">
+                    <span className="flex items-center gap-0.5 text-emerald-600"><ThumbsUp className="w-2.5 h-2.5" /> {m.likes}</span>
+                    <span className="flex items-center gap-0.5 text-rose-500"><ThumbsDown className="w-2.5 h-2.5" /> {m.dislikes}</span>
+                  </div>
+                </div>
               </motion.button>
             ))}
           </div>
@@ -238,6 +361,11 @@ export default function App() {
 
         {/* Map Area */}
         <main className="flex-1 relative">
+          <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur p-3 rounded-xl border border-stone-200 shadow-sm flex items-center gap-2">
+            <MapIcon className="w-4 h-4 text-emerald-600" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-stone-500">৩ সেকেন্ড চেপে ধরে নতুন মসজিদ যোগ করুন</span>
+          </div>
+
           <MapContainer
             center={[23.1689, 89.5012]}
             zoom={14}
@@ -252,13 +380,28 @@ export default function App() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             
+            <MapEvents onLongPress={(latlng) => setIsCreatingMosque({ lat: latlng.lat, lng: latlng.lng })} />
+            <MapController target={mapTarget} />
+
             {filteredMosques.map((mosque) => (
               <Marker 
                 key={mosque.id} 
                 position={[mosque.lat, mosque.lng]}
-                icon={getIcon(mosque.food_type, !!mosque.report_id)}
+                icon={getIcon(mosque.food_type)}
                 eventHandlers={{
                   click: () => setActiveMosque(mosque),
+                  mousedown: () => {
+                    markerTimerRef.current = setTimeout(() => {
+                      setIsDeletingMosque(mosque.id);
+                      markerTimerRef.current = null;
+                    }, 3000);
+                  },
+                  mouseup: () => {
+                    if (markerTimerRef.current) {
+                      clearTimeout(markerTimerRef.current);
+                      markerTimerRef.current = null;
+                    }
+                  },
                 }}
               >
                 <Popup className="modern-popup">
@@ -312,6 +455,167 @@ export default function App() {
             ))}
           </MapContainer>
         </main>
+
+        {/* Search Results Modal */}
+        <AnimatePresence>
+          {isSearchModalOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[2000] bg-stone-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-white rounded-[32px] p-8 w-full max-w-lg shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
+              >
+                <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-2xl font-black text-stone-900 leading-tight">খুঁজে পাওয়া মসজিদসমূহ</h2>
+                    <p className="text-stone-500 text-sm">মেনু: <span className="text-emerald-600 font-bold">{filterFood}</span></p>
+                  </div>
+                  <button 
+                    onClick={() => setIsSearchModalOpen(false)}
+                    className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                  >
+                    <Plus className="w-6 h-6 rotate-45 text-stone-400" />
+                  </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                  {filteredMosques.length > 0 ? (
+                    <div className="grid gap-3">
+                      {filteredMosques.map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => goToMosque(m)}
+                          className="flex items-center justify-between p-4 rounded-2xl border border-stone-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-all text-left"
+                        >
+                          <div>
+                            <span className="block text-sm font-bold text-stone-800">{m.name}</span>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5"><ThumbsUp className="w-2.5 h-2.5" /> {m.likes}</span>
+                              <span className="text-[10px] text-rose-500 font-bold flex items-center gap-0.5"><ThumbsDown className="w-2.5 h-2.5" /> {m.dislikes}</span>
+                            </div>
+                          </div>
+                          <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                            <MapPin className="w-5 h-5 text-emerald-600" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center">
+                      <p className="text-stone-400 font-bold italic">এই খাবারের কোনো মসজিদ পাওয়া যায়নি</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Create Mosque Modal */}
+        <AnimatePresence>
+          {isCreatingMosque && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[2000] bg-stone-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-white rounded-[32px] p-8 w-full max-w-md shadow-2xl overflow-hidden relative"
+              >
+                <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
+                <h2 className="text-2xl font-black text-stone-900 mb-2">নতুন মসজিদ যোগ করুন</h2>
+                <p className="text-stone-500 text-sm mb-6">মসজিদের সঠিক নাম লিখুন।</p>
+                
+                <input
+                  type="text"
+                  placeholder="মসজিদের নাম..."
+                  value={newMosqueName}
+                  onChange={(e) => setNewMosqueName(e.target.value)}
+                  className="w-full p-4 rounded-2xl bg-stone-100 border-2 border-transparent focus:bg-white focus:border-emerald-500 transition-all outline-none mb-6 font-bold"
+                  autoFocus
+                />
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setIsCreatingMosque(null)}
+                    className="flex-1 py-4 text-stone-400 font-bold hover:text-stone-600 transition-colors text-sm"
+                  >
+                    বাতিল
+                  </button>
+                  <button
+                    onClick={handleCreateMosque}
+                    disabled={!newMosqueName.trim()}
+                    className="flex-[2] bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50"
+                  >
+                    মসজিদ যোগ করুন
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Delete Mosque Modal */}
+        <AnimatePresence>
+          {isDeletingMosque && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[2000] bg-rose-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-white rounded-[32px] p-8 w-full max-w-md shadow-2xl overflow-hidden relative"
+              >
+                <div className="absolute top-0 left-0 w-full h-2 bg-rose-500" />
+                <h2 className="text-2xl font-black text-stone-900 mb-2">মসজিদ ডিলিট করুন</h2>
+                <p className="text-stone-500 text-sm mb-6">ডিলিট করতে সিকিউরিটি কোড দিন।</p>
+                
+                <input
+                  type="password"
+                  placeholder="কোড দিন..."
+                  value={deleteCode}
+                  onChange={(e) => setDeleteCode(e.target.value)}
+                  className="w-full p-4 rounded-2xl bg-stone-100 border-2 border-transparent focus:bg-white focus:border-rose-500 transition-all outline-none mb-6 font-bold text-center tracking-widest"
+                  autoFocus
+                />
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setIsDeletingMosque(null);
+                      setDeleteCode('');
+                    }}
+                    className="flex-1 py-4 text-stone-400 font-bold hover:text-stone-600 transition-colors text-sm"
+                  >
+                    বাতিল
+                  </button>
+                  <button
+                    onClick={handleDeleteMosque}
+                    disabled={deleteCode !== '1311'}
+                    className="flex-[2] bg-rose-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-rose-100 hover:bg-rose-700 transition-all disabled:opacity-50"
+                  >
+                    ডিলিট করুন
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Add Report Modal */}
         <AnimatePresence>
