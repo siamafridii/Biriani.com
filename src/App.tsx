@@ -52,36 +52,40 @@ function MapEvents({ onLongPress }: { onLongPress: (latlng: L.LatLng) => void })
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startPosRef = useRef<L.Point | null>(null);
 
+  const handleStart = (latlng: L.LatLng, containerPoint: L.Point) => {
+    startPosRef.current = containerPoint;
+    timerRef.current = setTimeout(() => {
+      onLongPress(latlng);
+      timerRef.current = null;
+    }, 3000);
+  };
+
+  const handleEnd = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleMove = (containerPoint: L.Point) => {
+    if (timerRef.current && startPosRef.current) {
+      const dist = startPosRef.current.distanceTo(containerPoint);
+      if (dist > 10) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
+
   useMapEvents({
-    mousedown: (e) => {
-      startPosRef.current = e.containerPoint;
-      timerRef.current = setTimeout(() => {
-        onLongPress(e.latlng);
-        timerRef.current = null;
-      }, 3000);
-    },
-    mouseup: () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    },
-    mousemove: (e) => {
-      if (timerRef.current && startPosRef.current) {
-        const dist = startPosRef.current.distanceTo(e.containerPoint);
-        if (dist > 10) { // Allow 10px jitter
-          clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
-      }
-    },
-    dragstart: () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    },
-  });
+    mousedown: (e) => handleStart(e.latlng, e.containerPoint),
+    mouseup: handleEnd,
+    mousemove: (e) => handleMove(e.containerPoint),
+    touchstart: (e: any) => handleStart(e.latlng, e.containerPoint),
+    touchend: handleEnd,
+    touchmove: (e: any) => handleMove(e.containerPoint),
+    dragstart: handleEnd,
+  } as any);
   return null;
 }
 
@@ -298,8 +302,11 @@ export default function App() {
             <div className="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200">
               <Utensils className="text-white w-6 h-6" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-emerald-900">বিরিয়ানি ডট কম</h1>
+            <div className="flex flex-col">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-2xl font-bold tracking-tight text-emerald-900">বিরিয়ানি ডট কম</h1>
+                <span className="md:hidden text-[8px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">DEV: @SIAMAFRID</span>
+              </div>
               <p className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold opacity-70">নড়াইল সদর স্পেশাল</p>
             </div>
           </motion.div>
@@ -402,7 +409,19 @@ export default function App() {
                       markerTimerRef.current = null;
                     }
                   },
-                }}
+                  touchstart: () => {
+                    markerTimerRef.current = setTimeout(() => {
+                      setIsDeletingMosque(mosque.id);
+                      markerTimerRef.current = null;
+                    }, 3000);
+                  },
+                  touchend: () => {
+                    if (markerTimerRef.current) {
+                      clearTimeout(markerTimerRef.current);
+                      markerTimerRef.current = null;
+                    }
+                  },
+                } as any}
               >
                 <Popup className="modern-popup">
                   <div className="p-4 min-w-[240px]">
@@ -668,7 +687,7 @@ export default function App() {
       {/* Footer with Developer Credit */}
       <footer className="bg-white border-t border-stone-200 py-3 px-6 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-stone-400">
         <p>© ২০২৬ বিরিয়ানি ডট কম - নড়াইল সদর</p>
-        <p className="text-emerald-600">Developer: @SIAMAFRID</p>
+        <p className="hidden md:block text-emerald-600">Developer: @SIAMAFRID</p>
       </footer>
 
       <style>{`
