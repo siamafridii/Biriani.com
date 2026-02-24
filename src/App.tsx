@@ -192,15 +192,21 @@ export default function App() {
       });
       const text = await res.text();
       if (!res.ok) {
+        let errorMessage = text;
+        try {
+          const errorJson = JSON.parse(text);
+          errorMessage = errorJson.error || text;
+        } catch (e) { }
+        
         if (text.includes("Rate exceeded")) {
           throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
         }
-        throw new Error(text.substring(0, 50));
+        throw new Error(`সার্ভার এরর (${res.status}): ${errorMessage.substring(0, 200)}`);
       }
       setIsAddingReport(null);
     } catch (error) {
       console.error('Failed to add report:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Failed to add report'}`);
+      alert(`ভুল হয়েছে: ${error instanceof Error ? error.message : 'তথ্য আপডেট করা সম্ভব হয়নি'}`);
     }
   };
 
@@ -220,13 +226,21 @@ export default function App() {
       
       const text = await res.text();
       if (!res.ok) {
+        let errorMessage = text;
+        try {
+          const errorJson = JSON.parse(text);
+          errorMessage = errorJson.error || text;
+        } catch (e) {
+          // Not JSON
+        }
+        
         if (text.includes("Rate exceeded")) {
           throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
         }
         if (res.status === 405) {
           throw new Error("সার্ভার এই মেথডটি সাপোর্ট করছে না (405)। দয়া করে ডেভেলপারকে জানান।");
         }
-        throw new Error(`সার্ভার এরর (${res.status}): ${text.substring(0, 100)}`);
+        throw new Error(`সার্ভার এরর (${res.status}): ${errorMessage.substring(0, 200)}`);
       }
 
       try {
@@ -280,13 +294,20 @@ export default function App() {
       });
       const text = await res.text();
       if (!res.ok) {
+        let errorMessage = text;
+        try {
+          const errorJson = JSON.parse(text);
+          errorMessage = errorJson.error || text;
+        } catch (e) { }
+        
         if (text.includes("Rate exceeded")) {
           throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
         }
-        throw new Error(text.substring(0, 50));
+        throw new Error(`সার্ভার এরর (${res.status}): ${errorMessage.substring(0, 200)}`);
       }
     } catch (error) {
       console.error('Failed to vote:', error);
+      alert(`ভুল হয়েছে: ${error instanceof Error ? error.message : 'ভোট দেওয়া সম্ভব হয়নি'}`);
     }
   };
 
