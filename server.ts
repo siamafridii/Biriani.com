@@ -2,55 +2,35 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import admin from "firebase-admin";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const isVercel = process.env.VERCEL === "1";
-const dbPath = isVercel ? path.join("/tmp", "biryani.db") : "biryani.db";
-const db = new Database(dbPath);
 
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS mosques (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    lat REAL NOT NULL,
-    lng REAL NOT NULL
-  );
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  try {
+    const projectId = process.env.FIREBASE_PROJECT_ID || "birianicom-d33d6";
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || "firebase-adminsdk-fbsvc@birianicom-d33d6.iam.gserviceaccount.com";
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY || "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDTxqFL7VK84j6N\nXmaSh8iEO3xbt5owG6E/xackxZdci5ZPI6Zkehf4P3mi9mXdRFzI0Ed2Fo4lbLJ8\nciG79/0helkb6orgnWZw4sHbSk41fKnESKXgRY0ChPWxNeBhpvKFbuq7v1/LHXDF\nfEox1C8ljJgGnzHrZXG1Sp58hyVSixr6vwEQmxlDUHYU5HwRdRDofFcu2ymRWfq5\ndpBhIVHmZUIva1SDSkfsOtskEhz5LeknRnVnp4FrgZSWbqrYt9Qa/VBriooBAAA/\nPGUnRT/zrOvvrO/9gFtOkFWzBsIZvIfrRpxKIzNvJMfDHiQ/g1K+iic0/t2UxFJO\nkd75XWs/AgMBAAECggEACIQLkbgLWa5nVtvy7UrUf1dnsBsj8hyfpqbWCnPU8FMU\nn5NkFNTsCH7U71P6fflKbzDLjti9V+KVEs1WxJjmRDsH65101C9qzSNGfwDv6tVb\n0O7IQh/J2c4Vlc4AJdfGwiLXAZG30mfD/yJOVs6czrpmlULq3k0H/i2aoztJVED9\nAB1lMw7oec2IxYrl3dR5CNgqhj5TNI7aV4SaNjhA0zFcQ9IHdC5GfNOh13yKL7zt\ncDpRgHJUDJc6fcQHPI1QKxQotpz9KNr/tzogvzOKgu88OPxqCmmN2sSxIHLJY34g\n8wx5VcXOF+nTH7S7BV6VjbTnlP55aMGLhGg7IAw2EQKBgQDv3tBvQFv15ER0LtlD\nBN0uxfvNc0yn8fl44TIhqqpCzDUckWcawfGf8B5mk1lt8VC2o3WiXB/PRtL/uaSI\nN4dTHY1k5cq0iod3qFCUpQNPIOQZFdiOvbray8dx2dxBdFRP3+N1ELz+o2oSg6HP\nX+G9S/zPbkimw8uwYrQzwIdyXQKBgQDiBDDi+si8VRKfOlR1yfxwF6KZTNzKhbna\nylEWTIknw+iS8tMkfkfA4B9vJXCziXjVRsUQbcn2gZ6LkeAfE4D/GzIHXAHpfTDJ\npv8+zA6c+f1MD9fXjUPTHVDl8H0GF15VEpEpNTVjtciH5WrXGRzMh+D0HnUXF+vZ\nGjHGIq/ySwKBgGK0dWDSQwU0IVcN0Clb3whYP/2S7IBPejDbuh1QdS93iINw8dR4\n6ky+KkRbbflny6bcLJPbBNvucPT6F1JWR0FUb9KNHJSeTJBYmpAQNwRgrHwGGU7j\nk/hk0nVvCMuGawtTPe32LU87P3LO587FzcZvdmCFKTA2caLreuuw1guhAoGAZnQX\n5Qxhql22D0/VsX9aW0Wbg3qAK53q3e8QStdu5QO9jb9dTxGfXSM7nJqQOBJ9H9Dw\ny72463FeeU4rFms08m9VgliG1VzWnNKCqei+RxJba/tSkHeM40pKvbECO5ykOlQs\nUU25YfWpbVDl2ZOcpmqB4qdb1JgXZVamcXaP43kCgYB1OAeifhYllI+8+iW4fURe\nI7uQaPbok8bGnM7zTs0PtA2oTASP3UObEJTQo3hzeaIAL3FUzO+bB9xZ9M2YhFx0\nX0GcPvAMaOgsQugVYiNWdoM34Gt7w0RcCQ6hdtCM8oSGBKaHRBxHbLJieQYYsqbx\npf4zHSXjRHiOF9AgyMtOQg==\n-----END PRIVATE KEY-----\n";
 
-  CREATE TABLE IF NOT EXISTS food_reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mosque_id INTEGER NOT NULL,
-    food_type TEXT NOT NULL,
-    likes INTEGER DEFAULT 0,
-    dislikes INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (mosque_id) REFERENCES mosques(id)
-  );
-`);
-
-// Seed initial mosques
-const mosqueCount = db.prepare("SELECT COUNT(*) as count FROM mosques").get() as { count: number };
-if (mosqueCount.count === 0) {
-  const initialMosques = [
-    { name: "Narail Central Jame Mosque (সদর)", lat: 23.1689, lng: 89.5012 },
-    { name: "Rupganj Bazar Jame Mosque (সদর)", lat: 23.1720, lng: 89.5050 },
-    { name: "Narail District Model Mosque (সদর)", lat: 23.1650, lng: 89.4980 },
-    { name: "Vatshala Jame Mosque (সদর)", lat: 23.1800, lng: 89.5100 },
-    { name: "Durgapur Jame Mosque (সদর)", lat: 23.1550, lng: 89.4900 },
-    { name: "Mahiskhola Jame Mosque (সদর)", lat: 23.1620, lng: 89.5120 },
-    { name: "Kurigram Jame Mosque (সদর)", lat: 23.1750, lng: 89.4950 },
-    { name: "Aladatpur Jame Mosque (সদর)", lat: 23.1670, lng: 89.5080 },
-    { name: "Bhowakhali Jame Mosque (সদর)", lat: 23.1580, lng: 89.5150 },
-    { name: "Chachra Jame Mosque (সদর)", lat: 23.1850, lng: 89.4850 }
-  ];
-  const insert = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)");
-  initialMosques.forEach(m => insert.run(m.name, m.lat, m.lng));
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: projectId,
+        clientEmail: clientEmail,
+        privateKey: privateKey.replace(/\\n/g, '\n'),
+      }),
+    });
+  } catch (error) {
+    console.error("Firebase initialization error:", error);
+  }
 }
+
+const firestore = admin.apps.length ? admin.firestore() : null;
 
 const app = express();
 const httpServer = createServer(app);
@@ -65,36 +45,36 @@ app.use((req, res, next) => {
 });
 
 // API Routes
-app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+app.get("/api/health", (req, res) => res.json({ status: "ok", firebase: !!firestore }));
 
 app.route(["/api/mosques", "/api/mosques/"])
-  .get((req, res) => {
+  .get(async (req, res) => {
+    if (!firestore) return res.status(503).json({ error: "Firebase not configured" });
     try {
-      const mosques = db.prepare(`
-        SELECT m.*, 
-               COALESCE(f.food_type, 'জানা নাই') as food_type, 
-               COALESCE(f.likes, 0) as likes, 
-               COALESCE(f.dislikes, 0) as dislikes, 
-               f.id as report_id
-        FROM mosques m
-        LEFT JOIN food_reports f ON m.id = f.mosque_id
-        WHERE f.id IS NULL OR f.id = (
-          SELECT id FROM food_reports 
-          WHERE mosque_id = m.id 
-          ORDER BY created_at DESC LIMIT 1
-        )
-      `).all();
+      const mosquesSnapshot = await firestore.collection("mosques").get();
+      const mosques = mosquesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       res.json(mosques);
     } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Database error" });
     }
   })
-  .post((req, res) => {
+  .post(async (req, res) => {
+    if (!firestore) return res.status(503).json({ error: "Firebase not configured" });
     const { name, lat, lng } = req.body;
     if (!name || !lat || !lng) return res.status(400).json({ error: "Missing fields" });
     try {
-      const result = db.prepare("INSERT INTO mosques (name, lat, lng) VALUES (?, ?, ?)").run(name, lat, lng);
-      const newMosque = { id: result.lastInsertRowid, name, lat, lng, food_type: 'জানা নাই', likes: 0, dislikes: 0, report_id: null };
+      const docRef = await firestore.collection("mosques").add({
+        name,
+        lat: Number(lat),
+        lng: Number(lng),
+        food_type: 'জানা নাই',
+        likes: 0,
+        dislikes: 0,
+        report_id: null,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      const newMosque = { id: docRef.id, name, lat, lng, food_type: 'জানা নাই', likes: 0, dislikes: 0, report_id: null };
       io.emit('mosque_created', newMosque);
       res.json(newMosque);
     } catch (err) {
@@ -102,13 +82,19 @@ app.route(["/api/mosques", "/api/mosques/"])
     }
   });
 
-app.delete("/api/mosques/:id", (req, res) => {
+app.delete("/api/mosques/:id", async (req, res) => {
+  if (!firestore) return res.status(503).json({ error: "Firebase not configured" });
   const { id } = req.params;
   const { code } = req.body;
   if (code !== "1311") return res.status(403).json({ error: "Invalid code" });
   try {
-    db.prepare("DELETE FROM food_reports WHERE mosque_id = ?").run(id);
-    db.prepare("DELETE FROM mosques WHERE id = ?").run(id);
+    await firestore.collection("mosques").doc(id).delete();
+    // Also delete reports for this mosque
+    const reportsSnapshot = await firestore.collection("reports").where("mosque_id", "==", id).get();
+    const batch = firestore.batch();
+    reportsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+    
     io.emit('mosque_deleted', id);
     res.json({ success: true });
   } catch (err) {
@@ -116,11 +102,27 @@ app.delete("/api/mosques/:id", (req, res) => {
   }
 });
 
-app.post("/api/reports", (req, res) => {
+app.post("/api/reports", async (req, res) => {
+  if (!firestore) return res.status(503).json({ error: "Firebase not configured" });
   const { mosque_id, food_type } = req.body;
   try {
-    const info = db.prepare("INSERT INTO food_reports (mosque_id, food_type) VALUES (?, ?)").run(mosque_id, food_type);
-    const newReport = { id: info.lastInsertRowid, mosque_id, food_type, likes: 0, dislikes: 0 };
+    const docRef = await firestore.collection("reports").add({
+      mosque_id,
+      food_type,
+      likes: 0,
+      dislikes: 0,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    
+    // Update mosque with latest report info
+    await firestore.collection("mosques").doc(mosque_id).update({
+      food_type,
+      report_id: docRef.id,
+      likes: 0,
+      dislikes: 0
+    });
+
+    const newReport = { id: docRef.id, mosque_id, food_type, likes: 0, dislikes: 0 };
     io.emit("report_added", newReport);
     res.json(newReport);
   } catch (err) {
@@ -128,15 +130,35 @@ app.post("/api/reports", (req, res) => {
   }
 });
 
-app.post("/api/vote", (req, res) => {
+app.post("/api/vote", async (req, res) => {
+  if (!firestore) return res.status(503).json({ error: "Firebase not configured" });
   const { report_id, type } = req.body;
   try {
+    const reportRef = firestore.collection("reports").doc(report_id);
+    const reportDoc = await reportRef.get();
+    if (!reportDoc.exists) return res.status(404).json({ error: "Report not found" });
+    
+    const data = reportDoc.data();
+    const mosque_id = data?.mosque_id;
+
     if (type === "like") {
-      db.prepare("UPDATE food_reports SET likes = likes + 1 WHERE id = ?").run(report_id);
+      await reportRef.update({ likes: admin.firestore.FieldValue.increment(1) });
+      if (mosque_id) {
+        await firestore.collection("mosques").doc(mosque_id).update({ 
+          likes: admin.firestore.FieldValue.increment(1) 
+        });
+      }
     } else {
-      db.prepare("UPDATE food_reports SET dislikes = dislikes + 1 WHERE id = ?").run(report_id);
+      await reportRef.update({ dislikes: admin.firestore.FieldValue.increment(1) });
+      if (mosque_id) {
+        await firestore.collection("mosques").doc(mosque_id).update({ 
+          dislikes: admin.firestore.FieldValue.increment(1) 
+        });
+      }
     }
-    const updated = db.prepare("SELECT * FROM food_reports WHERE id = ?").get();
+    
+    const updatedDoc = await reportRef.get();
+    const updated = { id: updatedDoc.id, ...updatedDoc.data() };
     io.emit("vote_updated", updated);
     res.json(updated);
   } catch (err) {

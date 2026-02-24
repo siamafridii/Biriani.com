@@ -9,6 +9,8 @@ import L from 'leaflet';
 import { io } from 'socket.io-client';
 import { Plus, ThumbsUp, ThumbsDown, Utensils, Info, ChevronRight, MapPin, Search, Loader2, Map as MapIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db as firestoreDb } from './lib/firebase';
 
 const FOOD_TYPES = ['বিরিয়ানি', 'ছুলামুড়ি', 'তেহেরি', 'খিচুড়ি', 'জানা নাই'];
 const FOOD_EMOJIS: Record<string, string> = {
@@ -26,14 +28,14 @@ const NARAIL_SADAR_BOUNDS: L.LatLngBoundsExpression = [
 ];
 
 interface Mosque {
-  id: number;
+  id: string;
   name: string;
   lat: number;
   lng: number;
   food_type: string;
   likes: number;
   dislikes: number;
-  report_id: number | null;
+  report_id: string | null;
 }
 
 // Initialize socket outside to prevent multiple connections
@@ -150,10 +152,10 @@ export default function App() {
   const [mosques, setMosques] = useState<Mosque[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterFood, setFilterFood] = useState('');
-  const [isAddingReport, setIsAddingReport] = useState<number | null>(null);
+  const [isAddingReport, setIsAddingReport] = useState<string | null>(null);
   const [pendingMosque, setPendingMosque] = useState<{ lat: number, lng: number } | null>(null);
   const [isNamingMosque, setIsNamingMosque] = useState(false);
-  const [isDeletingMosque, setIsDeletingMosque] = useState<number | null>(null);
+  const [isDeletingMosque, setIsDeletingMosque] = useState<string | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [deleteCode, setDeleteCode] = useState('');
   const [newMosqueName, setNewMosqueName] = useState('');
@@ -163,96 +165,25 @@ export default function App() {
 
   const [isCreating, setIsCreating] = useState(false);
 
-  const fetchMosques = useCallback(async () => {
-    try {
-      const res = await fetch('/api/mosques');
-      const text = await res.text();
-      
-      if (!res.ok) {
-        if (text.includes("Rate exceeded")) {
-          throw new Error("অতিরিক্ত রিকোয়েস্ট! একটু অপেক্ষা করুন।");
-        }
-        if (res.status === 404) {
-          throw new Error("সার্ভার পাওয়া যাচ্ছে না (404)। দয়া করে কিছুক্ষণ পর চেষ্টা করুন।");
-        }
-        if (res.status === 405) {
-          throw new Error("সার্ভার এই মেথডটি সাপোর্ট করছে না (405)। দয়া করে ডেভেলপারকে জানান।");
-        }
-        throw new Error(`সার্ভার এরর: ${res.status}`);
-      }
-
-      try {
-        const data = JSON.parse(text);
-        setMosques(Array.isArray(data) ? data : []);
-      } catch (e) {
-        throw new Error("সার্ভার থেকে ভুল তথ্য এসেছে।");
-      }
-    } catch (error) {
-      console.error('Failed to fetch mosques:', error);
-    } finally {
+  useEffect(() => {
+    // Real-time listener for mosques
+    const q = query(collection(firestoreDb, "mosques"), orderBy("name"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const mosqueData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Mosque[];
+      setMosques(mosqueData);
       setLoading(false);
-    }
+    }, (error) => {
+      console.error("Firestore error:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const socket = getSocket();
-    fetchMosques();
-
-    // Polling fallback for Vercel (since WebSockets don't work there)
-    const pollingInterval = setInterval(() => {
-      fetchMosques();
-    }, 15000); // Poll every 15 seconds
-
-    // Safety timeout to prevent infinite loading
-    const timeout = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
-    const handleReportAdded = (newReport: any) => {
-      setMosques(prev => prev.map(m => 
-        m.id === newReport.mosque_id 
-          ? { ...m, food_type: newReport.food_type, report_id: newReport.id, likes: 0, dislikes: 0 } 
-          : m
-      ));
-    };
-
-    const handleVoteUpdated = (updatedReport: any) => {
-      setMosques(prev => prev.map(m => 
-        m.id === updatedReport.mosque_id 
-          ? { ...m, likes: updatedReport.likes, dislikes: updatedReport.dislikes } 
-          : m
-      ));
-    };
-
-    const handleMosqueCreated = (newMosque: Mosque) => {
-      setMosques(prev => {
-        if (prev.find(m => m.id === newMosque.id)) return prev;
-        return [...prev, newMosque];
-      });
-    };
-
-    const handleMosqueDeleted = (id: any) => {
-      const mosqueId = typeof id === 'object' ? id.id : parseInt(id);
-      setMosques(prev => prev.filter(m => m.id !== mosqueId));
-      setActiveMosque(current => current?.id === mosqueId ? null : current);
-    };
-
-    socket.on('report_added', handleReportAdded);
-    socket.on('vote_updated', handleVoteUpdated);
-    socket.on('mosque_created', handleMosqueCreated);
-    socket.on('mosque_deleted', handleMosqueDeleted);
-
-    return () => {
-      clearTimeout(timeout);
-      clearInterval(pollingInterval);
-      socket.off('report_added', handleReportAdded);
-      socket.off('vote_updated', handleVoteUpdated);
-      socket.off('mosque_created', handleMosqueCreated);
-      socket.off('mosque_deleted', handleMosqueDeleted);
-    };
-  }, [fetchMosques]);
-
-  const handleAddReport = async (mosqueId: number, foodType: string) => {
+  const handleAddReport = async (mosqueId: string, foodType: string) => {
     try {
       const res = await fetch('/api/reports', {
         method: 'POST',
@@ -339,7 +270,7 @@ export default function App() {
     }
   };
 
-  const handleVote = async (reportId: number, type: 'like' | 'dislike') => {
+  const handleVote = async (reportId: string, type: 'like' | 'dislike') => {
     if (!reportId) return;
     try {
       const res = await fetch('/api/vote', {
