@@ -164,6 +164,7 @@ export default function App() {
   const markerTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isCreating, setIsCreating] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(true);
 
   useEffect(() => {
     // Real-time listener for mosques
@@ -772,6 +773,41 @@ export default function App() {
                   className="w-full py-4 text-stone-400 font-bold hover:text-stone-600 transition-colors text-sm"
                 >
                   বাতিল করুন
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Disclaimer Modal */}
+        <AnimatePresence>
+          {showDisclaimer && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[3000] bg-stone-900/80 backdrop-blur-md flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-white rounded-[32px] p-8 w-full max-w-md shadow-2xl overflow-hidden relative text-center"
+              >
+                <div className="absolute top-0 left-0 w-full h-2 bg-rose-500" />
+                <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Info className="w-10 h-10 text-rose-600" />
+                </div>
+                <h2 className="text-2xl font-black text-stone-900 mb-4">সতর্কবার্তা ও অনুরোধ</h2>
+                <p className="text-stone-600 font-bold leading-relaxed mb-8">
+                  "রোজা রেখে একজন রোজাদারকে ভুল ইনফরমেশন দিয়ে নিজের ইমানদারিত্ত নষ্ট করবেন না, দয়া করে সঠিক স্পট যুক্ত করুন"
+                </p>
+                
+                <button
+                  onClick={() => setShowDisclaimer(false)}
+                  className="w-full bg-stone-900 text-white py-4 rounded-2xl font-black shadow-lg shadow-stone-200 hover:bg-emerald-600 transition-all text-sm"
+                >
+                  আমি সম্মত
                 </button>
               </motion.div>
             </motion.div>
